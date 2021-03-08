@@ -13,6 +13,11 @@ import (
 	"time"
 )
 
+var (
+	errfile, _     = os.OpenFile("./error.log", os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0666)
+	successfile, _ = os.OpenFile("./success.log", os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0666)
+)
+
 type host struct {
 	sshHost     string
 	sshPassword string
@@ -45,15 +50,15 @@ func main() {
 	var command string
 	flag.StringVar(&command, "cmd", "", "命令")
 	flag.Parse()
-
+	defer errfile.Close()
 	list := getHostList("")
 	wg := sync.WaitGroup{}
 	wg.Add(len(list))
 	for _, h := range list {
-		go func() {
-			execCommand(h, command)
+		func(host host) {
+			execCommand(host, command)
 			wg.Done()
-		}()
+		}(h)
 	}
 	wg.Wait()
 }
@@ -71,6 +76,7 @@ func execCommand(host host, command string) {
 	sshClient, err := ssh.Dial("tcp", addr, config)
 	if err != nil {
 		log.Println("connect err ", err)
+		appendErrtoFile(host.sshHost + "执行报错" + err.Error())
 		return
 	}
 	defer sshClient.Close()
@@ -79,14 +85,29 @@ func execCommand(host host, command string) {
 	session, err := sshClient.NewSession()
 	if err != nil {
 		log.Println("create session err ", err)
+		appendErrtoFile(host.sshHost + "执行报错" + err.Error())
 	}
 	defer session.Close()
 	//执行远程命令
 	combo, err := session.CombinedOutput(command)
 	if err != nil {
 		log.Println("exec command ", err)
+		appendErrtoFile(host.sshHost + "执行报错" + err.Error())
 		return
 	}
 	log.Println(host.sshHost + " 执行远程命令成功........")
 	log.Println("命令输出:\n", string(combo))
+	appendSuccesstoFile(host.sshHost + " 执行远程命令成功........\n" + string(combo))
+}
+
+func appendErrtoFile(erring string) {
+	write := bufio.NewWriter(errfile)
+	write.WriteString(erring)
+	write.Flush()
+}
+
+func appendSuccesstoFile(succlog string) {
+	write := bufio.NewWriter(successfile)
+	write.WriteString(succlog)
+	write.Flush()
 }
